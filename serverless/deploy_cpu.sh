@@ -8,7 +8,7 @@ FUNCTIONS_DIR=${1:-$SCRIPT_DIR}
 
 export DOCKER_BUILDKIT=1
 
-docker build -t cvat.openvino.base "$SCRIPT_DIR/openvino/base"
+# docker build -t cvat.openvino.base "$SCRIPT_DIR/openvino/base"
 
 nuctl create project cvat --platform local
 
