@@ -1,0 +1,24 @@
+#...
+
+spec:
+  description: Interactive object segmentation with Segment-Anything 2.0
+  runtime: 'python:3.8'
+  handler: main:handler
+  eventTimeout: 30s
+
+  image: cvat.pth.facebookresearch.sam2.vit_h:latest
+
+  triggers:
+    myHttpTrigger:
+      maxWorkers: 2
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume
