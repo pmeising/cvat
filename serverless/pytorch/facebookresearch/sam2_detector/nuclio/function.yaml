@@ -1,0 +1,88 @@
+# Copyright (C) 2023-2024 CVAT.ai Corporation
+#
+# SPDX-License-Identifier: MIT
+
+metadata:
+  name: pth-corrosion-ssdlite-mobilenetv3-sam2 # Descriptive name for your corrosion model
+  namespace: cvat
+  annotations:
+    name: Corrosion SSDLite MobileNetV3 Detector (+SAM2) # Display name in CVAT UI
+    version: 1 # Start versioning
+    type: detector # This is a detector
+    spec: |
+      [
+        { "id": 1, "name": "corrosion" }
+      ]
+    help_message: "Detects corrosion using a fine-tuned SSDLite MobileNetV3 model. Can be refined with SAM2." # Optional: Update help message
+
+
+spec:
+  description: Object detection for corrosion using a fine-tuned SSDLite MobileNetV3 model, optionally refined with Segment-Anything 2.0.
+  runtime: 'python:3.8' # As per your template; ensure your handler and dependencies are compatible.
+  handler: main:handler # Entry point (e.g., in detector_handler.py)
+  eventTimeout: 120s # Adjust if detection takes longer
+
+  build:
+    image: cvat.pth.corrosion.ssdlite_mobilenetv3_sam2 # New image name
+    baseImage: ubuntu:22.04 # Or a more specific image if your CNN requires it
+    directives:
+      preCopy:
+      # disable interactive frontend
+        - kind: ENV
+          value: DEBIAN_FRONTEND=noninteractive
+      # set workdir
+        - kind: WORKDIR
+          value: /opt/nuclio/corrosion_detector # New work directory name
+
+      # Install basic deps
+        - kind: RUN
+          value: apt-get update && apt-get -y install build-essential curl git python3 python3-pip ffmpeg libsm6 libxext6
+
+      # Install Python dependencies for your CNN model
+        - kind: RUN
+          value: pip install torch torchvision Pillow opencv-python # opencv-python is needed
+
+      # install sam2 code (keep if using SAM2 for refinement)
+        - kind: RUN
+          value: SAM2_BUILD_CUDA=0 pip install git+https://github.com/facebookresearch/segment-anything-2.git@main
+
+      # download sam2 weights (keep if using SAM2)
+        - kind: RUN
+          value: curl -O https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt
+
+      # Debug: Print current working directory and list files
+        - kind: RUN
+          value: pwd && ls -la
+
+      # Download your fine-tuned CNN model weights from GitHub
+        - kind: RUN
+          value: curl -L -o model.pt https://github.com/pmeising/release_repo/releases/download/v0.0.1.alpha/finetuned_ssdlite_mobilenetv3_model_20250518_190008_train_imgs_2.pt
+
+      # Copy your fine-tuned CNN model weights
+        # - kind: COPY
+          # Source is your model file, destination is how it will be named in the image (e.g., model.pt for the handler)
+          # value: model.pt model.pt
+
+      # map pip3 and python3 to pip and python
+        - kind: RUN
+          value: ln -s /usr/bin/pip3 /usr/local/bin/pip && ln -s /usr/bin/python3 /usr/bin/python
+
+      # If your model_handler.py needs utility scripts like bounding_boxes_from_masks.py, copy them too:
+      # - kind: COPY
+      #   value: bounding_boxes_from_masks.py bounding_boxes_from_masks.py
+
+
+  triggers:
+    myHttpTrigger:
+      maxWorkers: 2 # Adjust based on resource needs and concurrency
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB (might need adjustment for larger images)
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume # Keep or adjust based on your setup
