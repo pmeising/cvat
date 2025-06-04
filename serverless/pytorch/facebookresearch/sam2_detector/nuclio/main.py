@@ -36,9 +36,21 @@ def handler(context, event):
         # No longer expect data["pos_points"] or data["neg_points"]
         # --------------------------------------------------
 
+        # Get threshold from request body, default to None (handler will use its own default)
+        request_threshold = data.get("threshold")
+        if request_threshold is not None:
+            try:
+                threshold = float(request_threshold)
+                context.logger.info(f"Using custom threshold from request: {threshold}")
+            except ValueError:
+                context.logger.warn(f"Invalid threshold value '{request_threshold}' in request. Using default.")
+                threshold = None
+        else:
+            threshold = None
+
         # Call the new detection method on the model handler
         # This method will return a list of detected objects
-        detections = context.user_data.model.handle_detection(image)
+        detections = context.user_data.model.handle_detection(image, threshold=threshold)
 
         # The response should be a JSON array of detection objects
         # Each object in the array should contain type, label, points, score

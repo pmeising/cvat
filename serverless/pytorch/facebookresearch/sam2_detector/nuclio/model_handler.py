@@ -31,7 +31,7 @@ SAM2_MODEL_CFG = "sam2_hiera_l.yaml" # Make sure this SAM2 config file is in you
 class DetectorHandler:
     NUM_CLASSES = 2  # 1 (corrosion) + 1 (background)
     LABEL_MAP = {1: "corrosion"}  # From your fine-tune.ipynb (label 'corrosion' is idx 1)
-    CONFIDENCE_THRESHOLD = 0.47
+    CONFIDENCE_THRESHOLD = 0.55
 
     def __init__(self, logger=None):
         self.logger = logger if logger is not None else logging.getLogger(__name__)
@@ -142,11 +142,20 @@ class DetectorHandler:
 
         return [float(p) for p in polygon_points] # Ensure all points are float
 
-    def handle_detection(self, image: Image.Image):
+    def handle_detection(self, image: Image.Image, threshold: float | None = None):
         """
         Handle image input: run CNN detection, then optionally refine with SAM2 for masks.
+        Accepts an optional threshold to override the class default.
         """
         final_detections = []
+
+        # Determine the confidence threshold to use
+        current_confidence_threshold = threshold if threshold is not None else self.CONFIDENCE_THRESHOLD
+        if threshold is not None:
+            self.logger.info(f"Using dynamic threshold for this request: {current_confidence_threshold}")
+        else:
+            self.logger.info(f"Using default class threshold: {current_confidence_threshold}")
+
 
         # 1. Run CNN Detection
         cnn_results = self._run_cnn_inference(image)
@@ -181,7 +190,7 @@ class DetectorHandler:
         for cnn_det in cnn_results:
             score = cnn_det['score']
 
-            if score < self.CONFIDENCE_THRESHOLD:
+            if score < current_confidence_threshold: # Use the determined threshold
                 continue
             
             num_passed_threshold += 1 # Increment if it passes the threshold
@@ -259,6 +268,6 @@ class DetectorHandler:
                      self.logger.info(f"Fell back to bounding box for '{label_name}' with score {score:.4f}.")
 
 
-        self.logger.info(f"{num_passed_threshold} detections passed confidence threshold ({self.CONFIDENCE_THRESHOLD}).") # Log total passed
+        self.logger.info(f"{num_passed_threshold} detections passed confidence threshold ({current_confidence_threshold}).") # Log total passed
         self.logger.info(f"Returning {len(final_detections)} final detections.")
         return final_detections

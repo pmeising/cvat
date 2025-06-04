@@ -1,60 +1,72 @@
+# Copyright (C) 2023-2024 CVAT.ai Corporation
+#
+# SPDX-License-Identifier: MIT
+
 import json
 import base64
-import io
 from PIL import Image
-
-import torch
-from detectron2.model_zoo import get_config
-from detectron2.data.detection_utils import convert_PIL_to_numpy
-from detectron2.engine.defaults import DefaultPredictor
-from detectron2.data.datasets.builtin_meta import COCO_CATEGORIES
-
-CONFIG_OPTS = ["MODEL.WEIGHTS", "model_final_971ab9.pkl"]
-CONFIDENCE_THRESHOLD = 0.5
+import io
+# We'll rename ModelHandler or create a new one that handles detection
+# Let's call it DetectorHandler for clarity
+from model_handler import DetectorHandler
 
 def init_context(context):
-    context.logger.info("Init context...  0%")
-
-    cfg = get_config('COCO-Detection/retinanet_R_101_FPN_3x.yaml')
-    if torch.cuda.is_available():
-        CONFIG_OPTS.extend(['MODEL.DEVICE', 'cuda'])
-    else:
-        CONFIG_OPTS.extend(['MODEL.DEVICE', 'cpu'])
-
-    cfg.merge_from_list(CONFIG_OPTS)
-    cfg.MODEL.RETINANET.SCORE_THRESH_TEST = CONFIDENCE_THRESHOLD
-    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = CONFIDENCE_THRESHOLD
-    cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = CONFIDENCE_THRESHOLD
-    cfg.freeze()
-    predictor = DefaultPredictor(cfg)
-
-    context.user_data.model_handler = predictor
-
-    context.logger.info("Init context...100%")
+    # Initialize the DetectorHandler which loads both models (CNN and SAM2)
+    # Pass context.logger to the handler for logging within the class
+    try:
+        model = DetectorHandler(context.logger)
+        context.user_data.model = model
+        context.logger.info("Init context...100%")
+    except Exception as e:
+        context.logger.error(f"Error during init_context: {str(e)}")
+        # Depending on Nuclio configuration, initialization failure might prevent the function from starting
+        raise # Re-raise the exception to indicate initialization failure
 
 def handler(context, event):
-    context.logger.info("Run retinanet-R101 model")
-    data = event.body
-    buf = io.BytesIO(base64.b64decode(data["image"]))
-    threshold = float(data.get("threshold", 0.5))
-    image = convert_PIL_to_numpy(Image.open(buf), format="BGR")
+    try:
+        context.logger.info("Detector handler called")
+        data = event.body
 
-    predictions = context.user_data.model_handler(image)
+        # Detector input only contains the image
+        buf = io.BytesIO(base64.b64decode(data["image"]))
+        image = Image.open(buf)
+        image = image.convert("RGB") # Ensure image is in RGB format
 
-    instances = predictions['instances']
-    pred_boxes = instances.pred_boxes
-    scores = instances.scores
-    pred_classes = instances.pred_classes
-    results = []
-    for box, score, label in zip(pred_boxes, scores, pred_classes):
-        label = COCO_CATEGORIES[int(label)]["name"]
-        if score >= threshold:
-            results.append({
-                "confidence": str(float(score)),
-                "label": label,
-                "points": box.tolist(),
-                "type": "rectangle",
-            })
+        # --- Removed interactor-specific input handling ---
+        # No longer expect data["pos_points"] or data["neg_points"]
+        # --------------------------------------------------
 
-    return context.Response(body=json.dumps(results), headers={},
-        content_type='application/json', status_code=200)
+        # Get threshold from request body, default to None (handler will use its own default)
+        request_threshold = data.get("threshold")
+        if request_threshold is not None:
+            try:
+                threshold = float(request_threshold)
+                context.logger.info(f"Using custom threshold from request: {threshold}")
+            except ValueError:
+                context.logger.warn(f"Invalid threshold value '{request_threshold}' in request. Using default.")
+                threshold = None
+        else:
+            threshold = None
+
+        # Call the new detection method on the model handler
+        # This method will return a list of detected objects
+        detections = context.user_data.model.handle_detection(image, threshold=threshold)
+
+        # The response should be a JSON array of detection objects
+        # Each object in the array should contain type, label, points, score
+        # Example: [{'type': 'mask', 'label': 'person', 'points': [...], 'score': 0.95}, ...]
+
+        return context.Response(
+            body=json.dumps(detections), # Return the list of detections directly
+            headers={},
+            content_type='application/json',
+            status_code=200
+        )
+    except Exception as e:
+        context.logger.error(f"Error in detector handler: {str(e)}")
+        return context.Response(
+            body=json.dumps({'error': str(e)}),
+            headers={},
+            content_type='application/json',
+            status_code=500
+        )

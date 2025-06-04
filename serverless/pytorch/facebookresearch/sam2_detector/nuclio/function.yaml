@@ -56,7 +56,7 @@ spec:
 
       # Download your fine-tuned CNN model weights from GitHub
         - kind: RUN
-          value: curl -L -o model.pt https://github.com/pmeising/release_repo/releases/download/v0.0.1.alpha/finetuned_ssdlite_mobilenetv3_model_20250518_190008_train_imgs_2.pt
+          value: curl -L -o model.pt https://github.com/pmeising/release_repo/releases/download/v0.0.2.alpha/finetuned_ssdlite_mobilenetv3_model_20250520_150353_train_imgs_27.pt
 
       # Copy your fine-tuned CNN model weights
         # - kind: COPY
